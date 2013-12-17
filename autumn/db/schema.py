@@ -25,84 +25,24 @@ import types
 import datetime
 
 from autumn.util import TODAY, NOW, TIME, DEFAULT
+from autumn.util.signals import WithSignals
 from autumn.db.connection import  autumn_db as db
-
-from autumn.util.signals import Signal, connect
-
-def send_signal(*a, **kw):
-	return getattr(Schema.__events__, kw.pop('signal')).send(*a, **kw)
-
-def signal_wrapper(method):
-	method_name = method.__name__
-	sender = '.'.join([cls_name, method_name])
-
-	def inner(self, *args, **kwargs):
-		send_signal(**{
-			'signal': cls_name+'_before_'+method_name,
-			'sender': sender,
-			'instance': self,
-			'data': {},
-			'options': {'args': args, 'kwargs': kwargs}
-		})
-
-		ret = method(self, *args, **kwargs)
-		
-		for instant in ['after', 'custom']:
-			send_signal(**{
-				'signal': '_'.join([cls_name, instant, method_name]),
-				'sender': sender,
-				'data': {'result': ret},
-				'instance': self,
-				'options': {'args': args, 'kwargs': kwargs}
-			})
-	
-		return ret
-
-	return inner
-
+from autumn.db.column import Column
 
 class SchemaBase(type):
 	def __new__(cls, cls_name, bases, attrs):
 		
-		events = type('Event', (object,),{})
 		fields = {}
 		attributes = {}
+
 		for attr, value in attrs.iteritems():
-			if callable(value):
-				if value.__name__ == '__init__' or \
-					not (value.__name__.startswith('_')):
-		
-					attr_name = value.__name__
-					sender = '.'.join([cls_name, attr_name])
-					wrapped_attr = signal_wrapper(value)
-
-					for instant in ['before', 'after', 'custom']:
-						if not locals().get(instant):
-							locals()[instant] = Signal()
-							
-						signal = locals()[instant]
-						signal_name = "_".join(
-							[cls_name, instant, attr_name]
-						)
-						setattr(events, signal_name, signal)
-						setattr(wrapped_attr, instant, connect(
-							signal,
-							signal_name,
-							sender
-						))
-
-					attributes[attr] = wrapped_attr
-				else:
-					attributes[attr]=value
-
-			elif not isinstance(value, tuple):
+			if callable(value)
+				or str(value).startswith('__'):
 				attributes[attr] = value
-
-			else:
+			elif isinstance(value, (tuple, Column)):
 				fields[attr] = value
 
 		attributes.update({
-			'__events__':events,
 			'tablename': '',
 			'fields': None,
 			'indexes': None
@@ -111,17 +51,19 @@ class SchemaBase(type):
 		new_class = type.__new__(cls, cls_name, bases, attributes)
 
 		@new_class.__init__.after
-		def after__init__(signal, sender, instance, data, options):
+		def after__init__(signal):
 			for attr, value, in fields.iteritems():
-				setattr(instance, attr, value)
+				setattr(signal.instance, attr, value)
 
 		return new_class
 
-class Schema(object):
+class Schema(WithSignals):
 	__metaclass__ = SchemaBase
+	__handlers__ = ('__init__', )
 	
-	def __init__(self, table, **fields):
+	def __init__(self, table, engine=None, **fields):
 		self.tablename = table
+		self.engine = engine
 		self.fields = {}
 		self.relations = {}
 
@@ -275,6 +217,10 @@ class Schema(object):
 		if k not in self.fields:
 			raise KeyError("key {} is not in {} schema".format(k, self.table))
 		return k
+
+	def load_column(self, column):
+		return self.engine.load_column(self, column)
+
 
 class TableSchema(Schema):
 	def __init__(self, table):

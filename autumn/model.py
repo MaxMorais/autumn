@@ -17,6 +17,20 @@ cache = ModelCache()
 class Empty:
     pass
 
+class Current(object):
+    def __init__(self, new_record=False, changed=()):
+        self.reset()
+        self.new_record = new_record
+        self.changed = set(changed)
+
+    def add_modified(self, name):
+        self.changed.add(name)
+
+    def reset():
+        self.new_record = False
+        self.changed = set()
+        
+
 class ModelBase(type):
     '''
     Metaclass for Model
