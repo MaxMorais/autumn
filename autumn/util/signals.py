@@ -2,8 +2,21 @@
 Extracted from https://github.com/coleifer/peewee
 """
 from __future__ import absolute_import, unicode_literals
+from autumn.util import Cache
+
+cache = Cache()
+
+class SignalBase(type):
+    def __new__(cls, name, bases, attrs):
+        if name == 'Signal':
+            return super(SignalBase, cls).__new__(cls, name, bases, attrs)
+
+        new_class = type.__new__(cls, name, bases, attrs)
+        cache.add(new_cls)
+        return new_class
 
 class Signal(object):
+    __metaclass__ = SignalBase
     def __init__(self):
         self._flush()
 
@@ -36,25 +49,90 @@ class Signal(object):
         self._receivers = {}
         self._receiver_list = []
 
+class WithSignalsBase(type):
+    def __new__(cls, name, bases, attrs):
+        if name == 'WithSignals':
+            return super(WithSignals, cls).__new__(cls, name, bases, attrs)
+
+        handlers = attrs.get('__handlers__', ())
+        if instance(handlers, basestring):
+            if handlers.lower in ('*', 'all'):
+                handlers = filter(lambda k: callable(attrs[k], attrs.iterkeys())
+            else:
+                handlers = (handlers,)
+        elif instance(handlers, (tuple,list,set)):
+            handlers = tuple(handlers)
+        else:
+            handlers = ()
+
+        for handler in handlers:
+            attribute = attrs.get(handler, None)
+
+            if attribute is not None:
+                sender = '{0}.{1}'.format(name, attribute)
+                attribute = signal_wrapper(name, attribute, sender)
+   
+                for when in attrs.get('__when__', ()):
+                    signal = signal_factory(instant, cls.__module__)
+                    signalname = '.'.join([name, when, handler])
+
+                    setattr(attribute, when, connect(
+                        signal,
+                        signalname,
+                        sender
+                    ))
+
+        return type.__new__(cls, name, bases, attrs)
+
+
+class WithSignals(object):
+    __metaclass__ = WithSignalsBase
+    __handlers__ = ()
+    __when__ = ('before', 'after', 'custom')
+    def __init__(self):
+        Super(WithSignals, self).__init__()
+
+def signal_wrapper(class_name, method, sender):
+    method_name = method.__name__
+    def inner(self, *args, **kwargs):
+        send_signal(**{
+            'signal': class_name+'_before_'+method_name,
+            'sender': sender,
+            'instance': self,
+            'data': {},
+            'options': {'args': args, 'kwargs': kwargs}
+        })
+
+        ret = method(self, *args, **kwargs)
+        
+        for instant in ['after', 'custom']:
+            send_signal(**{
+                'signal': '_'.join([class_name, instant, method_name]),
+                'sender': sender,
+                'data': {'result': ret},
+                'instance': self,
+                'options': {'args': args, 'kwargs': kwargs}
+            })
+    
+        return ret
+
+    return inner
+
+
+def signal_factory(name, module):
+    try:
+        signal = cache.get('.'.join([module, name]))
+    except cache.NotInCache:
+        signal = type(name, (Signal,), {'__module__': module})()
+    return signal
 
 def connect(signal, name=None, sender=None):
     def decorator(fn):
         signal.connect(fn, name, sender)
-        return fn
+        return staticmethod(fn)
     return decorator
 
-
-pre_save = Signal()
-post_save = Signal()
-pre_delete = Signal()
-post_delete = Signal()
-pre_init = Signal()
-post_init = Signal()
-class_prepared = Signal()
-field_conversion = Signal()
-
-
-def send_signal(*a, **kw):
+def send_signal(**kw):
     """Send signal abstract handler.
 
     You can to override it by settings.SIGNAL_SEND_HANDLER
@@ -66,4 +144,4 @@ def send_signal(*a, **kw):
     https://github.com/olivierverdier/dispatch
     and others.
     """
-    return globals().get(kw.pop('signal')).send(*a, **kw)
+    return cache.get(kw.pop('signal')).send(kw)
