@@ -9,6 +9,20 @@ from autumn.db.relations import ForeignKey, OneToMany
 from autumn.db.query import Query
 from autumn.db.connection import Database
 
+class Cache(object):
+    cached = {}
+    
+    def add(self, obj):
+        self.cached['.'.join([obj.__module__, obj.__name__)] = obj
+
+    def get(self, name):
+        try:
+            return self.cached[name]
+        except KeyError:
+            raise cache.NotInCache('{}'.format(name))
+
+    class NotInCache(Exception):
+        pass
 
 """
 Convenience functions for the Autumn ORM.
