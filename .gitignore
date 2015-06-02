@@ -1,4 +1,10 @@
 build/
 dist/
+autumn2.egg-info/
+.comments
+.gis
+sqlbuilder
+.ropeproject
 *.pyc
 MANIFEST
+TODO

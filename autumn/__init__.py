@@ -1,4 +1,15 @@
-__copyright__ = 'Copyright (c) 2008 Jared Kuolt'
+from __future__ import absolute_import
+import logging
+from autumn import settings
 
-version = (0,5,1)
-version_string = "Autumn ORM version %d.%d.%d" % version
+if settings.DEBUG:
+    import warnings
+    warnings.simplefilter('default')
+
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
